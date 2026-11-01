@@ -23,7 +23,6 @@ jobs:
       DSH_GATE_CONCURRENCY: '1'
       DSH_GATE_FAIL_FAST: '1'
       NODE_OPTIONS: '--max-old-space-size=4096'
-      HOME: ${{ runner.temp }}/dsh-home
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,7 +36,6 @@ jobs:
           cache: pnpm
       - name: Install locked dependencies
         run: |
-          mkdir -p "$HOME"
           timeout 360s pnpm install --frozen-lockfile --ignore-scripts
       - name: Build artifacts
         run: timeout 480s pnpm run build:artifacts
@@ -45,9 +43,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/dsh-empty-workspace"
-          cd "$RUNNER_TEMP/dsh-empty-workspace"
-          "$GITHUB_WORKSPACE/node_modules/.bin/pnpm" --dir "$GITHUB_WORKSPACE" dsh web --no-open > "$RUNNER_TEMP/dsh-web.log" 2>&1 &
+          mkdir -p "$RUNNER_TEMP/dsh-home"
+          HOME="$RUNNER_TEMP/dsh-home" pnpm dsh web --no-open > "$RUNNER_TEMP/dsh-web.log" 2>&1 &
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           ready=0
