@@ -1,0 +1,52 @@
+name: DeepSeek Harness - Safe Manual Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: safe-manual-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Repository metadata and safety checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DSH_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check repository metadata and required files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in README.md SAFETY.md LICENSE package.json pnpm-lock.yaml; do
+            test -f "$file" || { echo "::error::Missing $file"; exit 1; }
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("package.json").read_text())
+          assert data.get("private") is True, "Expected private root package"
+          assert data.get("packageManager", "").startswith("pnpm@"), "pnpm version not pinned"
+          assert data.get("engines", {}).get("node"), "Node engine requirement missing"
+          print("Metadata validated; no dependencies installed or project code executed.")
+          PY
+
+      - name: Summarize safety constraints
+        shell: bash
+        run: |
+          {
+            echo "## DeepSeek Harness safe audit"
+            echo "- Static metadata check only"
+            echo "- No package installation or execution of project code"
+            echo "- No secrets or write token permissions"
+            echo "- Manual dispatch only; 5-minute job timeout"
+          } >> "$GITHUB_STEP_SUMMARY"
