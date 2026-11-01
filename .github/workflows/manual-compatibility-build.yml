@@ -1,0 +1,80 @@
+name: DeepSeek Harness - Manual Compatibility and Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsh-manual-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility-build:
+    name: Node 24 / dependency and build smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      DSH_TELEMETRY_DISABLED: '1'
+      CI: 'true'
+      DSH_GATE_CONCURRENCY: '1'
+      DSH_GATE_FAIL_FAST: '1'
+      NODE_OPTIONS: '--max-old-space-size=4096'
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm from pinned packageManager
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Report runtime and package requirements
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          pnpm --version
+          node -e 'const p=require("./package.json"); console.log("Node required:",p.engines.node,"pnpm pinned:",p.packageManager)'
+
+      - name: Install locked dependencies without lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 360s pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: TypeScript check
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 240s pnpm run typecheck
+
+      - name: Build artifacts smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 240s pnpm run build:artifacts
+
+      - name: Report successful checks
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo '## Manual compatibility and build'
+            echo '- Dependency installation: passed (lifecycle scripts disabled)'
+            echo '- TypeScript typecheck: passed'
+            echo '- Artifact build: passed'
+            echo '- No API keys or secrets supplied'
+            echo '- No production deployment or external agent execution'
+          } >> "$GITHUB_STEP_SUMMARY"
