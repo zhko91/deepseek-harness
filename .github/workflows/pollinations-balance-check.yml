@@ -1,0 +1,42 @@
+name: Pollinations credential and balance check (no generation)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check credential availability and account balance without generating media
+        env:
+          POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
+        shell: python
+        run: |
+          import json, os, urllib.request, urllib.error, sys
+          key = os.environ.get("POLLINATIONS_API_KEY", "")
+          if not key.startswith("sk_"):
+              print("BLOCKED: POLLINATIONS_API_KEY secret is absent or not an sk_ key")
+              sys.exit(1)
+          print("Secret present (value hidden)")
+          req = urllib.request.Request(
+              "https://gen.pollinations.ai/account/balance",
+              headers={"Authorization": "Bearer " + key, "Accept": "application/json"})
+          try:
+              with urllib.request.urlopen(req, timeout=25) as resp:
+                  data = json.load(resp)
+              if isinstance(data,dict):
+                  # Only print numeric balance fields, never arbitrary API response text
+                  for field in ("balance","pollen","questPollen","quest_pollen"):
+                      value=data.get(field)
+                      if isinstance(value,(int,float)) and not isinstance(value,bool):
+                          print(field + ":", value)
+                  print("Balance endpoint authenticated successfully")
+              else:
+                  print("Balance endpoint returned unexpected JSON format")
+          except urllib.error.HTTPError as e:
+              print("Balance endpoint returned HTTP", e.code, "(response body hidden)")
+              sys.exit(1)
+          except Exception as e:
+              print("Balance check failed:",type(e).__name__)
+              sys.exit(1)
