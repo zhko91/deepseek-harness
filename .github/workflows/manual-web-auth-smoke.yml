@@ -2,6 +2,10 @@ name: DeepSeek Harness - Authenticated Web Smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/manual-web-auth-smoke.yml'
 
 permissions:
   contents: read
