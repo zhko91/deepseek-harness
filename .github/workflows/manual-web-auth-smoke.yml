@@ -1,0 +1,79 @@
+name: DeepSeek Harness - Authenticated Web Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authenticated-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      CI: 'true'
+      DSH_TELEMETRY_DISABLED: '1'
+      NODE_OPTIONS: '--max-old-space-size=4096'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install dependencies
+        run: timeout 360s pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build artifacts
+        run: timeout 480s pnpm run build:artifacts
+      - name: Verify token exchange and authenticated HTML
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { spawn } from 'node:child_process'
+          const child = spawn('pnpm', ['dsh', 'web', '--no-open'], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+            env: { ...process.env, HOME: process.env.RUNNER_TEMP + '/dsh-auth-home' }
+          })
+          let buffer = ''
+          let credentialUrl
+          const collect = chunk => {
+            buffer = (buffer + chunk.toString()).slice(-16000)
+            const match = buffer.match(/https?:\/\/[^\s"'<>]+\?token=[^\s"'<>]+/)
+            if (match) credentialUrl = match[0]
+          }
+          child.stdout.on('data', collect)
+          child.stderr.on('data', collect)
+          const deadline = Date.now() + 90000
+          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+          try {
+            while (!credentialUrl && Date.now() < deadline && child.exitCode === null) await sleep(300)
+            if (!credentialUrl) throw Error('No startup credential URL observed')
+            const root = new URL(credentialUrl)
+            if (root.hostname !== '127.0.0.1' && root.hostname !== 'localhost' && root.hostname !== '::1') throw Error('Unexpected startup host')
+            const first = await fetch(root, { redirect: 'manual' })
+            const cookie = first.headers.get('set-cookie')
+            if (!cookie) throw Error('No session cookie issued; status ' + first.status)
+            const cookiePair = cookie.split(';', 1)[0]
+            const clean = new URL(root.origin + '/')
+            const second = await fetch(clean, { headers: { Cookie: cookiePair }, redirect: 'manual' })
+            const body = await second.text()
+            if (second.status !== 200 || !body.toLowerCase().includes('<html')) throw Error('Authenticated HTML failed; status ' + second.status)
+            const anonymous = await fetch(clean, { redirect: 'manual' })
+            if (anonymous.status !== 401) throw Error('Unauthenticated root unexpectedly returned ' + anonymous.status)
+            console.log('PASS: anonymous 401; token exchanged for cookie; authenticated HTML 200')
+            if (process.env.GITHUB_STEP_SUMMARY) {
+              const { appendFileSync } = await import('node:fs')
+              appendFileSync(process.env.GITHUB_STEP_SUMMARY, '## Authenticated Web smoke\n- Anonymous root: 401\n- Startup token exchanged for a session cookie\n- Authenticated HTML: 200\n- Codespaces proxy and browser rendering: NOT TESTED\n')
+            }
+          } catch (error) {
+            console.error('FAIL: ' + error.message)
+            process.exitCode = 1
+          } finally {
+            child.kill('SIGTERM')
+            await sleep(300)
+          }
+          NODE
