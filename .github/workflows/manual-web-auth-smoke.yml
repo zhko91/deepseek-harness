@@ -34,6 +34,8 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import { spawn } from 'node:child_process'
+          const { mkdirSync } = await import('node:fs')
+          mkdirSync(process.env.RUNNER_TEMP + '/dsh-auth-home', { recursive: true })
           const child = spawn('pnpm', ['dsh', 'web', '--no-open'], {
             stdio: ['ignore', 'pipe', 'pipe'],
             env: { ...process.env, HOME: process.env.RUNNER_TEMP + '/dsh-auth-home' }
