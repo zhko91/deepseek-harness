@@ -1,0 +1,53 @@
+name: Pollinations balance check
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify secret and balance
+        env:
+          POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
+        shell: python
+        run: |
+          import os
+          import json
+          import urllib.request
+          import urllib.error
+          import sys
+
+          key = os.getenv("POLLINATIONS_API_KEY", "")
+
+          if not key.startswith("sk_"):
+              sys.exit("ERROR: API key missing or invalid")
+
+          print("API key detected securely")
+
+          req = urllib.request.Request(
+              "https://gen.pollinations.ai/account/balance",
+              headers={
+                  "Authorization": "Bearer " + key,
+                  "Accept": "application/json"
+              }
+          )
+
+          try:
+              with urllib.request.urlopen(req, timeout=25) as response:
+                  data = json.load(response)
+              if isinstance(data, dict):
+                  for name in ("balance", "pollen", "questPollen", "quest_pollen"):
+                      value = data.get(name)
+                      if type(value) in (int, float):
+                          print(name + ":", value)
+                  print("Balance API connected successfully")
+              else:
+                  sys.exit("Unexpected balance response")
+          except urllib.error.HTTPError as error:
+              print("API returned HTTP", error.code)
+              sys.exit(1)
+              
