@@ -1,0 +1,24 @@
+name: FreeLLMAPI video catalog (no credentials, no generation)
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/freellmapi-video-capability-20261102
+    paths:
+      - 'experiments/freellmapi-video/**'
+      - '.github/workflows/freellmapi-video-catalog.yml'
+permissions:
+  contents: read
+jobs:
+  inspect-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Inspect public model catalog (no key, no inference)
+        run: python experiments/freellmapi-video/check_public_catalog.py
+      - name: Verify generation client dry-run (no network)
+        run: python experiments/freellmapi-video/probe_video.py
